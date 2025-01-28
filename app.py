@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 
+
 class Student:
     def __init__(self, id: int, name: str):
         self.id = id
@@ -193,34 +194,59 @@ def setup_page():
             "Antal elever", 
             min_value=2, 
             max_value=100, 
-            value=st.session_state.num_students
+            value=st.session_state.num_students,
+            key="num_students_input"
         )
         num_topics = st.number_input(
             "Antal emner", 
             min_value=1, 
             max_value=20, 
-            value=len(st.session_state.topics)
+            value=len(st.session_state.topics),
+            key="num_topics_input"
         )
-        
+
+        # Opdater elevnavne dynamisk
+        if num_students != len(st.session_state.student_names):
+            if num_students > len(st.session_state.student_names):
+                # Tilføj nye standardnavne
+                for i in range(len(st.session_state.student_names), num_students):
+                    st.session_state.student_names.append(f"Elev {i+1}")
+            else:
+                # Fjern overskydende navne
+                st.session_state.student_names = st.session_state.student_names[:num_students]
+
+        # Opdater emner dynamisk
+        if num_topics != len(st.session_state.topics):
+            if num_topics > len(st.session_state.topics):
+                # Tilføj nye standardemner
+                for i in range(len(st.session_state.topics), num_topics):
+                    st.session_state.topics.append(f"Emne {i+1}")
+            else:
+                # Fjern overskydende emner
+                st.session_state.topics = st.session_state.topics[:num_topics]
+
         st.subheader("Emnekonfiguration")
         topics = []
-        cols = st.columns(3)
         for i in range(num_topics):
-            with cols[i % 3]:
-                default_topic = st.session_state.topics[i] if i < len(st.session_state.topics) else f"Emne {i+1}"
-                topic = st.text_input(f"Emne {i+1}", value=default_topic)
-                topics.append(topic)
-        
+            topic = st.text_input(
+                f"Emne {i+1}", 
+                value=st.session_state.topics[i], 
+                key=f"topic_{i}"
+            )
+            topics.append(topic)
+
         st.subheader("Elevnavne")
         student_names = []
-        cols = st.columns(5)
         for i in range(num_students):
-            with cols[i % 5]:
-                default_name = st.session_state.student_names[i] if i < len(st.session_state.student_names) else f"Elev {i+1}"
-                name = st.text_input(f"Elev {i+1}", value=default_name)
-                student_names.append(name)
-        
+            name = st.text_input(
+                f"Elev {i+1}", 
+                value=st.session_state.student_names[i], 
+                key=f"student_{i}"
+            )
+            student_names.append(name)
+
         if st.form_submit_button("Start konfiguration"):
+            # Gem kun hvis der ikke er fejl
             st.session_state.num_students = num_students
             st.session_state.topics = topics
             st.session_state.student_names = student_names
@@ -314,7 +340,73 @@ def main_page():
                 st.warning(f"{len(st.session_state.system.students) - total_matched} elever kunne ikke placeres")
 
 def main():
+    st.set_page_config(
+        page_title="GruppeDanner Pro",
+        page_icon="👥",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Tilføj custom CSS for forbedret design
+    st.markdown("""
+    <style>
+        .stButton>button {
+            transition: all 0.3s ease;
+            border-radius: 8px !important;
+        }
+        .stButton>button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .stExpander {
+            background: #f8f9fa;
+            border-radius: 10px !important;
+            border: 1px solid #e9ecef !important;
+        }
+        .stProgress > div > div > div {
+            background-color: #2563eb !important;
+        }
+        .metric-box {
+            padding: 1.5rem;
+            background: #ffffff;
+            border-radius: 10px;
+            border: 1px solid #e9ecef;
+            margin: 0.5rem 0;
+        }
+        .github-corner {
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 9999;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # GitHub banner
+    st.markdown("""
+    <div class="github-corner">
+        <a href="https://github.com/antongandersson" target="_blank">
+            <svg width="80" height="80" viewBox="0 0 250 250" style="fill:#2563eb; color:#fff; position: absolute; top: 0; border: 0; right: 0;">
+                <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path>
+                <path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path>
+                <path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.9 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path>
+            </svg>
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+
     initialize_session_state()
+    
+    # Top banner med status
+    if st.session_state.page == 'main' and st.session_state.system:
+        cols = st.columns([3, 1])
+        with cols[1]:
+            progress = len(st.session_state.preferences_set) / len(st.session_state.system.students)
+            st.metric("Indsendte præferencer", 
+                     f"{len(st.session_state.preferences_set)}/{len(st.session_state.system.students)}",
+                     help="Procentdel af elever der har indsendt deres valg")
+            st.progress(progress)
+
     if st.session_state.page == 'setup':
         setup_page()
     else:
