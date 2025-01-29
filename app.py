@@ -68,9 +68,8 @@ class GroupFormationSystem:
     def find_best_groups(self, score_matrix: np.ndarray) -> List[Group]:
         unassigned = set(range(len(self.students)))
         groups = []
-        used_topics = set()
 
-        while unassigned and len(used_topics) < len(self.topics):
+        while unassigned:
             best_group = None
             best_score = -1
             best_topic = None
@@ -81,40 +80,49 @@ class GroupFormationSystem:
                     if not members:
                         continue
                     
-                    # Beregn gruppescore og find potentielt emne
+                    # Beregn gruppescore og find bedste emne for gruppen
                     score = self._calculate_group_score(members, score_matrix)
                     topic_counts = {}
                     
                     for i in members:
                         topic = self.students[i].preferred_topic
-                        if topic and topic not in used_topics:
+                        if topic:
                             topic_counts[topic] = topic_counts.get(topic, 0) + 1
-
+                    
                     if not topic_counts:
-                        continue  # Spring over grupper uden gyldigt emne
+                        continue
                     
                     current_topic = max(topic_counts.items(), key=lambda x: x[1])[0]
                     
-                    # Opdater bedste gruppe hvis højere score eller bedre emnematch
-                    if score > best_score or (score == best_score and len(members) > len(best_group)):
+                    # Opdater bedste gruppe hvis højere score
+                    if score > best_score:
                         best_score = score
                         best_group = members
                         best_topic = current_topic
 
             if best_group and best_topic:
-                used_topics.add(best_topic)
                 group_members = [self.students[i] for i in best_group]
                 groups.append(Group(group_members, best_topic, best_score))
                 unassigned -= set(best_group)
             else:
-                break  # Stop hvis ingen gyldige grupper kan dannes
-
-        # Håndter resterende elever
-        if unassigned:
-            remaining_students = [self.students[i] for i in unassigned]
-            available_topics = [t for t in self.topics if t not in used_topics]
-            chosen_topic = available_topics[0] if available_topics else "Ingen tilgængeligt emne"
-            groups.append(Group(remaining_students, chosen_topic, 0.0))
+                # Håndter eventuelle resterende elever
+                remaining_students = [self.students[i] for i in unassigned]
+                
+                # Opdel resterende studerende i grupper af maks 4
+                while remaining_students:
+                    current_group = remaining_students[:self.max_group_size]
+                    remaining_students = remaining_students[self.max_group_size:]
+                    
+                    # Find det mest populære emne for denne undergruppe
+                    topic_preferences = {}
+                    for student in current_group:
+                        if student.preferred_topic:
+                            topic_preferences[student.preferred_topic] = topic_preferences.get(student.preferred_topic, 0) + 1
+                    
+                    chosen_topic = max(topic_preferences.items(), key=lambda x: x[1])[0] if topic_preferences else self.topics[0]
+                    groups.append(Group(current_group, chosen_topic, 0.0))
+                
+                break
 
         return groups
 
