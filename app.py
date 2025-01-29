@@ -3,7 +3,11 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional, Tuple
 import plotly.express as px
+import plotly.graph_objects as go
 from streamlit.components.v1 import html
+from fuzzywuzzy import process
+import Levenshtein
+import networkx as nx
 
 class Student:
     def __init__(self, id: int, name: str):
@@ -165,7 +169,8 @@ def initialize_session_state():
         st.session_state.student_names = [f"Elev {i+1}" for i in range(35)]
     if 'first_visit' not in st.session_state:
         st.session_state.first_visit = True
-
+    if 'guided_tour_step' not in st.session_state:
+        st.session_state.guided_tour_step = 0
 
 def go_to_setup():
     st.session_state.page = 'setup'
@@ -175,20 +180,54 @@ def go_to_main():
     st.session_state.page = 'main'
     st.session_state.setup_complete = True
 
-
 def show_stepper(current_step):
-    steps = ["Konfiguration", "Elevvalg", "Gruppedannelse"]
-    html = f"""
-    <div class="stepper-container">
-        {''.join([
-            f'<div class="stepper-item {"active" if i == current_step else ""}">'
-            f'<span style="background: white; padding: 0 1rem;">{step}</span>'
-            '</div>' 
-            for i, step in enumerate(steps)
-        ])}
+    steps = [
+        {"icon": "📝", "title": "Konfiguration", "tooltip": "Indstil grundlæggende parametre"},
+        {"icon": "👤", "title": "Elevvalg", "tooltip": "Indsaml elevpræferencer"},
+        {"icon": "👥", "title": "Gruppedannelse", "tooltip": "Se og rediger grupper"}
+    ]
+    
+    stepper_html = f"""
+    <div class="stepper-container" style="position: relative; margin: 0.5rem 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            {''.join([
+                f'<div style="flex: 1; text-align: center; position: relative; margin: 0 0.5rem;" data-tooltip="{step["tooltip"]}">'
+                f'  <div class="phase-icon" style="color: {"#3b82f6" if i == current_step else "#cccccc"};'
+                f'       border: 2px solid {"#3b82f6" if i == current_step else "#eeeeee"};'
+                f'       border-radius: 50%; width: 40px; height: 40px; display: inline-flex;'
+                f'       align-items: center; justify-content: center;">{step["icon"]}</div>'
+                f'  <div style="margin-top: 0.5rem; font-weight: {"bold" if i == current_step else "normal"}">{step["title"]}</div>'
+                f'</div>'
+                for i, step in enumerate(steps)
+            ])}
+        </div>
     </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(stepper_html, unsafe_allow_html=True)
+
+    html("""
+    <script>
+    document.querySelectorAll('[data-tooltip]').forEach(el => {
+        el.addEventListener('mouseover', () => {
+            const tooltip = document.createElement('div');
+            tooltip.style.position = 'absolute';
+            tooltip.style.background = 'rgba(0,0,0,0.8)';
+            tooltip.style.color = 'white';
+            tooltip.style.padding = '5px 10px';
+            tooltip.style.borderRadius = '4px';
+            tooltip.style.top = '-40px';
+            tooltip.style.left = '50%';
+            tooltip.style.transform = 'translateX(-50%)';
+            tooltip.style.whiteSpace = 'nowrap';
+            tooltip.textContent = el.dataset.tooltip;
+            el.appendChild(tooltip);
+        });
+        el.addEventListener('mouseout', () => {
+            el.removeChild(el.lastChild);
+        });
+    });
+    </script>
+    """)
 
 def show_animated_success(message):
     st.markdown(f"""
@@ -205,38 +244,125 @@ def show_animated_success(message):
 
 def display_student_status(system: GroupFormationSystem, preferences_set: set):
     st.subheader("Elevstatus")
-    search_query = st.text_input("Søg efter elever", key="student_search")
     
-    has_preferences = [s for s in system.students if s.id in preferences_set]
-    missing_preferences = [s for s in system.students if s.id not in preferences_set]
+    col1, col2 = st.columns(2)
+    with col1:
+        search_query = st.text_input("Søg efter elever", key="student_search")
+    with col2:
+        filter_status = st.selectbox("Filtrer efter status", ["Alle", "Udfyldt", "Mangler"], index=1)
     
+    all_names = [s.name for s in system.students]
     if search_query:
-        has_preferences = [s for s in has_preferences if search_query.lower() in s.name.lower()]
-        missing_preferences = [s for s in missing_preferences if search_query.lower() in s.name.lower()]
+        matches = process.extract(search_query, all_names, limit=5)
+        filtered_students = [s for s in system.students if s.name in [m[0] for m in matches]]
+    else:
+        filtered_students = system.students
     
-    tab1, tab2 = st.tabs(["Har valgt", "Mangler valg"])
+    if filter_status == "Udfyldt":
+        filtered_students = [s for s in filtered_students if s.id in preferences_set]
+    elif filter_status == "Mangler":
+        filtered_students = [s for s in filtered_students if s.id not in preferences_set]
     
-    with tab1:
-        cols = st.columns(5)
-        for i, student in enumerate(has_preferences):
-            with cols[i % 5]:
-                st.markdown(f"""
-                <div class="custom-card">
-                    ✅ {student.name}<br>
-                    <small>Score: {sum(system.calculate_pair_score(student, s) for s in has_preferences if s != student):.1f}</small>
+    for student in filtered_students:
+        completeness = "full" if student.id in preferences_set else "partial"
+        with st.container():
+            st.markdown(f"""
+            <div class="student-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4>{student.name}</h4>
+                        <div style="font-size: 0.9em;">
+                            <div>📌 Primært emne: {student.preferred_topic or 'Ikke valgt'}</div>
+                            <div>📌 Sekundært emne: {student.secondary_topic or 'Ikke valgt'}</div>
+                            <div>🤝 Valgte partnere: {len(student.preferred_partners)}</div>
+                        </div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2em; font-weight: bold; 
+                            color: {'#4caf50' if completeness == 'full' else '#ffd600'}">
+                            {len(student.preferred_partners)*10}%
+                        </div>
+                        <small>Komplethed</small>
+                    </div>
                 </div>
-                """, unsafe_allow_html=True)
+            </div>
+            """, unsafe_allow_html=True)
+
+def show_network_graph(system):
+    st.subheader("Elevnetværk")
+    G = nx.Graph()
     
-    with tab2:
-        cols = st.columns(5)
-        for i, student in enumerate(missing_preferences):
-            with cols[i % 5]:
-                st.markdown(f"""
-                <div class="custom-card">
-                    ⭕ {student.name}<br>
-                    <small>Ikke indsendt</small>
-                </div>
-                """, unsafe_allow_html=True)
+    for student in system.students:
+        G.add_node(student.id, label=student.name, topic=student.preferred_topic)
+        for partner in student.preferred_partners:
+            if partner in [s.id for s in system.students]:
+                partner_student = next(s for s in system.students if s.id == partner)
+                score = system.calculate_pair_score(student, partner_student)
+                G.add_edge(student.id, partner, weight=score)
+    
+    pos = nx.spring_layout(G, seed=42)
+    
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.extend([x0, x1, None])
+        edge_y.extend([y0, y1, None])
+    
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1, color='#888'),
+        hoverinfo='none',
+        mode='lines')
+    
+    node_x = []
+    node_y = []
+    node_text = []
+    node_color = []
+    for node in G.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        node_text.append(G.nodes[node]['label'])
+        node_color.append(hash(G.nodes[node]['topic']) % 0xFFFFFF if G.nodes[node]['topic'] else 0xCCCCCC)
+    
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        text=node_text,
+        textposition="top center",
+        marker=dict(
+            showscale=True,
+            colorscale='Viridis',
+            size=20,
+            color=node_color,
+            line_width=2))
+    
+    fig = go.Figure(data=[edge_trace, node_trace],
+                 layout=go.Layout(
+                    showlegend=False,
+                    hovermode='closest',
+                    margin=dict(b=0,l=0,r=0,t=0),
+                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+                    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def add_keyboard_shortcuts():
+    html("""
+    <script>
+    document.addEventListener('keydown', function(e) {
+        if(e.altKey && e.key === 's') {
+            window.parent.document.querySelector('button:has-text("Gem valg")').click();
+        }
+        if(e.altKey && e.key === 'n') {
+            window.parent.document.querySelector('button:has-text("Næste")').click();
+        }
+    });
+    </script>
+    """)
 
 def setup_page():
     if st.session_state.first_visit:
@@ -271,7 +397,8 @@ def setup_page():
             value=st.session_state.num_students,
             key="num_students_input"
         )
-        
+        st.session_state.num_students = num_students  # Opdater session state
+
     with col2:
         num_topics = st.number_input(
             "Antal emner", 
@@ -372,6 +499,7 @@ def main_page():
     
     with st.sidebar:
         st.header("Indstillinger")
+        theme = st.selectbox("Tema", ["Automatisk", "Lyst", "Mørkt"], index=0)
         high_contrast = st.toggle("Høj kontrast tilstand")
         if high_contrast:
             st.markdown('<style>[data-high-contrast="true"] { filter: contrast(1.4); }</style>', unsafe_allow_html=True)
@@ -436,22 +564,61 @@ def main_page():
             st.subheader("Live Dashboard")
             cols = st.columns([2, 1])
             with cols[0]:
-                if groups:
-                    topics = [group.topic for group in groups]
-                    fig = px.pie(
-                        values=[topics.count(t) for t in set(topics)],
-                        names=list(set(topics)),
-                        title="Emnefordeling"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                show_network_graph(st.session_state.system)
             with cols[1]:
                 with st.expander("📊 Statusoversigt", expanded=True):
                     st.metric("Grupper dannet", len(groups))
-                    st.metric("Gns. score", f"{np.mean([g.score for g in groups]):.1f}")
+                    st.metric("Gns. score", f"{sum(g.score for g in groups)/len(groups):.1f}" if groups else "0.0")
                     st.progress(progress)
             
             if len([m for g in groups for m in g.members]) < len(st.session_state.system.students):
                 st.warning(f"{len(st.session_state.system.students) - len([m for g in groups for m in g.members])} elever kunne ikke placeres")
+    
+    add_keyboard_shortcuts()
+    
+    with st.expander("❓ Hjælpefunktioner", expanded=False):
+        st.markdown("""
+        **Keyboard shortcuts:**
+        - Alt + S: Gem valg
+        - Alt + N: Næste side
+        
+        **Tips:**
+        - Klik på en elev for at se detaljer
+        - Hover over faser for forklaringer
+        """)
+
+    # Tema-håndtering
+    theme_js = f"""
+    <script>
+        const setTheme = (isDark) => {{
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+        }};
+
+        const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const themeSetting = "{theme}";
+        
+        if(themeSetting === 'Automatisk') {{
+            setTheme(systemDark);
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {{
+                setTheme(e.matches);
+            }});
+        }} else {{
+            setTheme(themeSetting === 'Mørkt');
+        }}
+
+        const observer = new MutationObserver(mutations => {{
+            const bodyColor = getComputedStyle(document.body).backgroundColor;
+            const isDark = bodyColor === 'rgb(26, 26, 26)';
+            setTheme(isDark);
+        }});
+
+        observer.observe(document.body, {{
+            attributes: true,
+            attributeFilter: ['style']
+        }});
+    </script>
+    """
+    html(theme_js)
 
 def main():
     st.set_page_config(
@@ -463,83 +630,81 @@ def main():
     
     st.markdown("""
     <style>
-        .stButton>button {
+        :root {{
+            --primary-bg: #ffffff;
+            --secondary-bg: #f8f9fa;
+            --primary-text: #333333;
+            --border-color: #e9ecef;
+            --button-bg: #2563eb;
+            --button-hover: #1d4ed8;
+        }}
+
+        [data-theme="dark"] {{
+            --primary-bg: #1a1a1a;
+            --secondary-bg: #2d2d2d;
+            --primary-text: #ffffff;
+            --border-color: #4d4d4d;
+            --button-bg: #3b82f6;
+            --button-hover: #2563eb;
+        }}
+
+        body {{
+            background-color: var(--primary-bg) !important;
+            color: var(--primary-text) !important;
             transition: all 0.3s ease;
-            border-radius: 8px !important;
-        }
-        .stButton>button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        }
-        .stExpander {
-            background: #f8f9fa;
-            border-radius: 10px !important;
-            border: 1px solid #e9ecef !important;
-        }
-        .stProgress > div > div > div {
-            background-color: #2563eb !important;
-        }
-        .metric-box {
-            padding: 1.5rem;
-            background: #ffffff;
-            border-radius: 10px;
-            border: 1px solid #e9ecef;
-            margin: 0.5rem 0;
-        }
-        .github-corner {
-            position: absolute;
-            top: 0;
-            right: 0;
-            z-index: 9999;
-        }
-        .custom-card {
-            padding: 1.5rem;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            margin-bottom: 1rem;
-        }
-        .stepper-container {
-            display: flex;
-            justify-content: space-between;
-            margin: 2rem 0;
-        }
-        .stepper-item {
-            flex: 1;
-            text-align: center;
+        }}
+
+        .stApp {{
+            background-color: var(--primary-bg) !important;
+        }}
+
+        .stExpander {{
+            background: var(--secondary-bg) !important;
+            border-color: var(--border-color) !important;
+        }}
+
+        .stButton>button {{
+            background-color: var(--button-bg) !important;
+            color: white !important;
+        }}
+
+        .stButton>button:hover {{
+            background-color: var(--button-hover) !important;
+        }}
+
+        .custom-card {{
+            background: var(--secondary-bg) !important;
+            border: 1px solid var(--border-color) !important;
+        }}
+
+        .student-card {{
             padding: 1rem;
-            position: relative;
-        }
-        .stepper-item.active {
-            color: #2563eb;
-            font-weight: 600;
-        }
-        .stepper-item::after {
-            content: '';
-            position: absolute;
-            width: 100%;
-            height: 2px;
-            background: #e9ecef;
-            top: 50%;
-            left: 50%;
-            transform: translateY(-50%);
-            z-index: -1;
-        }
-        @media (max-width: 768px) {
-            .stColumn {
+            border-radius: 10px;
+            margin: 0.5rem 0;
+            background: var(--secondary-bg);
+            border: 1px solid var(--border-color);
+        }}
+
+        .stepper-container div[data-tooltip] {{
+            margin: 0 0.5rem;
+        }}
+
+        @media (max-width: 768px) {{
+            .stColumn {{
                 flex-direction: column !important;
-            }
-        }
-        [data-high-contrast="true"] {
+            }}
+        }}
+
+        [data-high-contrast="true"] {{
             filter: contrast(1.4);
-        }
+        }}
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("""
     <div class="github-corner">
         <a href="https://github.com/antongandersson" target="_blank">
-            <svg width="80" height="80" viewBox="0 0 250 250" style="fill:#2563eb; color:#fff; position: absolute; top: 0; border: 0; right: 0;">
+            <svg width="80" height="80" viewBox="0 0 250 250" style="fill:#3b82f6; color:#fff; position: absolute; top: 0; border: 0; right: 0;">
                 <path d="M0,0 L115,115 L130,115 L142,142 L250,250 L250,0 Z"></path>
                 <path d="M128.3,109.0 C113.8,99.7 119.0,89.6 119.0,89.6 C122.0,82.7 120.5,78.6 120.5,78.6 C119.2,72.0 123.4,76.3 123.4,76.3 C127.3,80.9 125.5,87.3 125.5,87.3 C122.9,97.6 130.6,101.9 134.4,103.2" fill="currentColor" style="transform-origin: 130px 106px;" class="octo-arm"></path>
                 <path d="M115.0,115.0 C114.9,115.1 118.7,116.5 119.8,115.4 L133.7,101.6 C136.9,99.2 139.9,98.4 142.2,98.6 C133.8,88.0 127.5,74.4 143.8,58.0 C148.5,53.4 154.0,51.2 159.7,51.0 C160.3,49.4 163.2,43.6 171.4,40.1 C171.4,40.1 176.1,42.9 178.8,56.2 C183.1,58.6 187.2,61.8 190.9,65.4 C194.5,69.0 197.7,73.2 200.1,77.6 C213.8,80.2 216.3,84.9 216.3,84.9 C212.7,93.1 206.9,96.0 205.4,96.6 C205.1,102.4 203.0,107.8 198.3,112.5 C181.9,128.9 168.3,122.5 157.7,114.1 C157.9,116.9 156.7,120.9 152.7,124.9 L141.0,136.5 C139.8,137.7 141.6,141.9 141.8,141.8 Z" fill="currentColor" class="octo-body"></path>
