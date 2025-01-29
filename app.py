@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional, Tuple
-
+import plotly.express as px
+from streamlit.components.v1 import html
 
 class Student:
     def __init__(self, id: int, name: str):
@@ -33,20 +34,15 @@ class GroupFormationSystem:
     def calculate_pair_score(self, student1: Student, student2: Student) -> float:
         score = 0.0
         
-        # Gensidige førstevalg
         if student2.id in student1.preferred_partners[:1] and student1.id in student2.preferred_partners[:1]:
             score += 10.0
-        # Gensidige valg
         elif student2.id in student1.preferred_partners and student1.id in student2.preferred_partners:
             score += 5.0
-        # Ensidigt valg
         elif student2.id in student1.preferred_partners or student1.id in student2.preferred_partners:
             score += 2.0
         
-        # Matchende primæremne
         if student1.preferred_topic == student2.preferred_topic:
             score += 5.0
-        # Sekundær matches
         elif (student1.preferred_topic == student2.secondary_topic or 
               student1.secondary_topic == student2.preferred_topic):
             score += 2.0
@@ -74,13 +70,11 @@ class GroupFormationSystem:
             best_score = -1
             best_topic = None
 
-            # Søg efter bedste gruppe blandt ledige elever
             for size in range(2, min(self.max_group_size + 1, len(unassigned) + 1)):
                 for members in self._get_possible_groups(list(unassigned), size):
                     if not members:
                         continue
                     
-                    # Beregn gruppescore og find bedste emne for gruppen
                     score = self._calculate_group_score(members, score_matrix)
                     topic_counts = {}
                     
@@ -94,7 +88,6 @@ class GroupFormationSystem:
                     
                     current_topic = max(topic_counts.items(), key=lambda x: x[1])[0]
                     
-                    # Opdater bedste gruppe hvis højere score
                     if score > best_score:
                         best_score = score
                         best_group = members
@@ -105,15 +98,12 @@ class GroupFormationSystem:
                 groups.append(Group(group_members, best_topic, best_score))
                 unassigned -= set(best_group)
             else:
-                # Håndter eventuelle resterende elever
                 remaining_students = [self.students[i] for i in unassigned]
                 
-                # Opdel resterende studerende i grupper af maks 4
                 while remaining_students:
                     current_group = remaining_students[:self.max_group_size]
                     remaining_students = remaining_students[self.max_group_size:]
                     
-                    # Find det mest populære emne for denne undergruppe
                     topic_preferences = {}
                     for student in current_group:
                         if student.preferred_topic:
@@ -173,6 +163,9 @@ def initialize_session_state():
         ]
     if 'student_names' not in st.session_state:
         st.session_state.student_names = [f"Elev {i+1}" for i in range(35)]
+    if 'first_visit' not in st.session_state:
+        st.session_state.first_visit = True
+
 
 def go_to_setup():
     st.session_state.page = 'setup'
@@ -182,21 +175,92 @@ def go_to_main():
     st.session_state.page = 'main'
     st.session_state.setup_complete = True
 
+
+def show_stepper(current_step):
+    steps = ["Konfiguration", "Elevvalg", "Gruppedannelse"]
+    html = f"""
+    <div class="stepper-container">
+        {''.join([
+            f'<div class="stepper-item {"active" if i == current_step else ""}">'
+            f'<span style="background: white; padding: 0 1rem;">{step}</span>'
+            '</div>' 
+            for i, step in enumerate(steps)
+        ])}
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+def show_animated_success(message):
+    st.markdown(f"""
+    <div class="custom-card" style="animation: fadeIn 0.5s ease-in;">
+        ✅ {message}
+    </div>
+    <style>
+    @keyframes fadeIn {{
+        0% {{ opacity: 0; transform: translateY(-10px); }}
+        100% {{ opacity: 1; transform: translateY(0); }}
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
 def display_student_status(system: GroupFormationSystem, preferences_set: set):
     st.subheader("Elevstatus")
-    cols = st.columns(5)
-    for i, student in enumerate(system.students):
-        col_index = i % 5
-        with cols[col_index]:
-            if student.id in preferences_set:
-                st.markdown(f"✅ {student.name}")
-            else:
-                st.markdown(f"⭕ {student.name}")
+    search_query = st.text_input("Søg efter elever", key="student_search")
+    
+    has_preferences = [s for s in system.students if s.id in preferences_set]
+    missing_preferences = [s for s in system.students if s.id not in preferences_set]
+    
+    if search_query:
+        has_preferences = [s for s in has_preferences if search_query.lower() in s.name.lower()]
+        missing_preferences = [s for s in missing_preferences if search_query.lower() in s.name.lower()]
+    
+    tab1, tab2 = st.tabs(["Har valgt", "Mangler valg"])
+    
+    with tab1:
+        cols = st.columns(5)
+        for i, student in enumerate(has_preferences):
+            with cols[i % 5]:
+                st.markdown(f"""
+                <div class="custom-card">
+                    ✅ {student.name}<br>
+                    <small>Score: {sum(system.calculate_pair_score(student, s) for s in has_preferences if s != student):.1f}</small>
+                </div>
+                """, unsafe_allow_html=True)
+    
+    with tab2:
+        cols = st.columns(5)
+        for i, student in enumerate(missing_preferences):
+            with cols[i % 5]:
+                st.markdown(f"""
+                <div class="custom-card">
+                    ⭕ {student.name}<br>
+                    <small>Ikke indsendt</small>
+                </div>
+                """, unsafe_allow_html=True)
 
 def setup_page():
+    if st.session_state.first_visit:
+        with st.expander("Velkommen til GruppeDanner Pro!", expanded=True):
+            st.write("""
+            **Første gangs guide:**
+            1. Konfigurer antal elever og emner
+            2. Tilpas elevnavne og emnenavne
+            3. Klik 'Start konfiguration' når du er klar
+            """)
+            if st.button("Start nu"):
+                st.session_state.first_visit = False
+                st.rerun()
+        return
+
     st.title("Gruppedannelsessystem - Konfiguration")
     
-    # Brug columns til bedre layout
+    with st.expander("❓ Hjælp til konfiguration", expanded=False):
+        st.write("""
+        - **Antal elever**: Vælg det samlede antal deltagere
+        - **Emner**: Definer minimum 2 fagområder
+        - **Elevnavne**: Skriv rigtige navne eller brug standard
+        """)
+
     col1, col2 = st.columns(2)
     
     with col1:
@@ -205,8 +269,7 @@ def setup_page():
             min_value=2, 
             max_value=100, 
             value=st.session_state.num_students,
-            key="num_students_input",
-            on_change=lambda: st.session_state.update({"num_students": st.session_state.num_students_input})
+            key="num_students_input"
         )
         
     with col2:
@@ -215,31 +278,23 @@ def setup_page():
             min_value=1, 
             max_value=20, 
             value=len(st.session_state.topics),
-            key="num_topics_input",
-            on_change=lambda: st.session_state.update({"num_topics": st.session_state.num_topics_input})
+            key="num_topics_input"
         )
 
-    # Opdater elevnavne dynamisk
     if st.session_state.num_students != len(st.session_state.student_names):
         if st.session_state.num_students > len(st.session_state.student_names):
-            # Tilføj nye standardnavne
             for i in range(len(st.session_state.student_names), st.session_state.num_students):
                 st.session_state.student_names.append(f"Elev {i+1}")
         else:
-            # Fjern overskydende navne
             st.session_state.student_names = st.session_state.student_names[:st.session_state.num_students]
 
-    # Opdater emner dynamisk
     if num_topics != len(st.session_state.topics):
         if num_topics > len(st.session_state.topics):
-            # Tilføj nye standardemner
             for i in range(len(st.session_state.topics), num_topics):
                 st.session_state.topics.append(f"Emne {i+1}")
         else:
-            # Fjern overskydende emner
             st.session_state.topics = st.session_state.topics[:num_topics]
 
-    # Vis emner i to kolonner
     st.subheader("Emner")
     topics_col1, topics_col2 = st.columns(2)
     with topics_col1:
@@ -247,19 +302,16 @@ def setup_page():
             topic = st.text_input(
                 f"Emne {i+1}", 
                 value=st.session_state.topics[i],
-                key=f"topic_{i}",
-                on_change=lambda i=i: st.session_state.topics.__setitem__(i, st.session_state[f"topic_{i}"])
+                key=f"topic_{i}"
             )
     with topics_col2:
         for i in range((len(st.session_state.topics) + 1) // 2, len(st.session_state.topics)):
             topic = st.text_input(
                 f"Emne {i+1}", 
                 value=st.session_state.topics[i],
-                key=f"topic_{i}",
-                on_change=lambda i=i: st.session_state.topics.__setitem__(i, st.session_state[f"topic_{i}"])
+                key=f"topic_{i}"
             )
 
-    # Vis elever i to kolonner
     st.subheader("Elevnavne")
     students_col1, students_col2 = st.columns(2)
     with students_col1:
@@ -267,19 +319,16 @@ def setup_page():
             name = st.text_input(
                 f"Elev {i+1}", 
                 value=st.session_state.student_names[i],
-                key=f"student_{i}",
-                on_change=lambda i=i: st.session_state.student_names.__setitem__(i, st.session_state[f"student_{i}"])
+                key=f"student_{i}"
             )
     with students_col2:
         for i in range((len(st.session_state.student_names) + 1) // 2, len(st.session_state.student_names)):
             name = st.text_input(
                 f"Elev {i+1}", 
                 value=st.session_state.student_names[i],
-                key=f"student_{i}",
-                on_change=lambda i=i: st.session_state.student_names.__setitem__(i, st.session_state[f"student_{i}"])
+                key=f"student_{i}"
             )
 
-    # Enter-taste håndtering
     if st.button("Start konfiguration ⏎", key="start_btn") or st.session_state.get("enter_pressed"):
         st.session_state.system = GroupFormationSystem(
             st.session_state.num_students,
@@ -290,7 +339,6 @@ def setup_page():
         go_to_main()
         st.rerun()
 
-    # JavaScript til at fange Enter-tasten
     st.components.v1.html(
         """
         <script>
@@ -303,14 +351,9 @@ def setup_page():
         """
     )
 
-def find_next_unassigned_student(system, preferences_set):
-    """Find the next student that hasn't set preferences yet."""
-    all_ids = set(s.id for s in system.students)
-    remaining_ids = all_ids - preferences_set
-    return min(remaining_ids) if remaining_ids else None
-
 def main_page():
     st.title("Gruppedannelsessystem")
+    show_stepper(1)
     
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
@@ -327,18 +370,18 @@ def main_page():
     display_student_status(st.session_state.system, st.session_state.preferences_set)
     st.markdown("---")
     
-    # Find næste ikke-valgte elev hvis ikke allerede sat
-    if 'current_student' not in st.session_state:
-        next_student = find_next_unassigned_student(st.session_state.system, st.session_state.preferences_set)
-        st.session_state.current_student = next_student if next_student else 1
-    
-    st.sidebar.header("Elevvælger")
-    selected_student_id = st.sidebar.selectbox(
-        "Vælg elev",
-        options=[s.id for s in st.session_state.system.students],
-        index=[s.id for s in st.session_state.system.students].index(st.session_state.current_student),
-        format_func=lambda x: f"{st.session_state.system.students[x-1].name} {'✅' if x in st.session_state.preferences_set else '⭕'}"
-    )
+    with st.sidebar:
+        st.header("Indstillinger")
+        high_contrast = st.toggle("Høj kontrast tilstand")
+        if high_contrast:
+            st.markdown('<style>[data-high-contrast="true"] { filter: contrast(1.4); }</style>', unsafe_allow_html=True)
+        
+        st.markdown("---")
+        selected_student_id = st.selectbox(
+            "Vælg elev",
+            options=[s.id for s in st.session_state.system.students],
+            format_func=lambda x: st.session_state.system.students[x-1].name
+        )
     
     col1, col2 = st.columns(2)
     with col1:
@@ -368,15 +411,7 @@ def main_page():
             None if secondary_topic == "Ingen" else secondary_topic
         )
         st.session_state.preferences_set.add(selected_student_id)
-        
-        # Find næste elev der mangler at vælge
-        next_student = find_next_unassigned_student(st.session_state.system, st.session_state.preferences_set)
-        if next_student:
-            st.session_state.current_student = next_student
-            st.success(f"Valg gemt for {st.session_state.system.students[selected_student_id-1].name}. Skifter til næste elev.")
-        else:
-            st.success(f"Valg gemt for {st.session_state.system.students[selected_student_id-1].name}. Alle elever har nu valgt!")
-        
+        show_animated_success(f"Valg gemt for {st.session_state.system.students[selected_student_id-1].name}")
         st.rerun()
     
     st.subheader("Samlet status")
@@ -388,6 +423,7 @@ def main_page():
         with st.spinner("Danner grupper..."):
             score_matrix = st.session_state.system.create_score_matrix()
             groups = st.session_state.system.find_best_groups(score_matrix)
+            st.session_state.groups = groups
             
             st.subheader("Resultater")
             for i, group in enumerate(groups, 1):
@@ -397,15 +433,25 @@ def main_page():
                     for member in group.members:
                         st.write(f"- {member.name}")
             
-            st.subheader("Statistik")
-            col1, col2, col3 = st.columns(3)
-            total_matched = sum(len(g.members) for g in groups)
-            col1.metric("Grupper dannet", len(groups))
-            col2.metric("Elever placeret", f"{total_matched}/{len(st.session_state.system.students)}")
-            col3.metric("Gns. gruppescore", f"{sum(g.score for g in groups)/len(groups):.1f}" if groups else "0.0")
+            st.subheader("Live Dashboard")
+            cols = st.columns([2, 1])
+            with cols[0]:
+                if groups:
+                    topics = [group.topic for group in groups]
+                    fig = px.pie(
+                        values=[topics.count(t) for t in set(topics)],
+                        names=list(set(topics)),
+                        title="Emnefordeling"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+            with cols[1]:
+                with st.expander("📊 Statusoversigt", expanded=True):
+                    st.metric("Grupper dannet", len(groups))
+                    st.metric("Gns. score", f"{np.mean([g.score for g in groups]):.1f}")
+                    st.progress(progress)
             
-            if total_matched < len(st.session_state.system.students):
-                st.warning(f"{len(st.session_state.system.students) - total_matched} elever kunne ikke placeres")
+            if len([m for g in groups for m in g.members]) < len(st.session_state.system.students):
+                st.warning(f"{len(st.session_state.system.students) - len([m for g in groups for m in g.members])} elever kunne ikke placeres")
 
 def main():
     st.set_page_config(
@@ -415,7 +461,6 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Tilføj custom CSS for forbedret design
     st.markdown("""
     <style>
         .stButton>button {
@@ -447,10 +492,50 @@ def main():
             right: 0;
             z-index: 9999;
         }
+        .custom-card {
+            padding: 1.5rem;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+        }
+        .stepper-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 2rem 0;
+        }
+        .stepper-item {
+            flex: 1;
+            text-align: center;
+            padding: 1rem;
+            position: relative;
+        }
+        .stepper-item.active {
+            color: #2563eb;
+            font-weight: 600;
+        }
+        .stepper-item::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 2px;
+            background: #e9ecef;
+            top: 50%;
+            left: 50%;
+            transform: translateY(-50%);
+            z-index: -1;
+        }
+        @media (max-width: 768px) {
+            .stColumn {
+                flex-direction: column !important;
+            }
+        }
+        [data-high-contrast="true"] {
+            filter: contrast(1.4);
+        }
     </style>
     """, unsafe_allow_html=True)
 
-    # GitHub banner
     st.markdown("""
     <div class="github-corner">
         <a href="https://github.com/antongandersson" target="_blank">
@@ -465,16 +550,6 @@ def main():
 
     initialize_session_state()
     
-    # Top banner med status
-    if st.session_state.page == 'main' and st.session_state.system:
-        cols = st.columns([3, 1])
-        with cols[1]:
-            progress = len(st.session_state.preferences_set) / len(st.session_state.system.students)
-            st.metric("Indsendte præferencer", 
-                     f"{len(st.session_state.preferences_set)}/{len(st.session_state.system.students)}",
-                     help="Procentdel af elever der har indsendt deres valg")
-            st.progress(progress)
-
     if st.session_state.page == 'setup':
         setup_page()
     else:
