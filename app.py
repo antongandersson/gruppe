@@ -303,6 +303,12 @@ def setup_page():
         """
     )
 
+def find_next_unassigned_student(system, preferences_set):
+    """Find the next student that hasn't set preferences yet."""
+    all_ids = set(s.id for s in system.students)
+    remaining_ids = all_ids - preferences_set
+    return min(remaining_ids) if remaining_ids else None
+
 def main_page():
     st.title("Gruppedannelsessystem")
     
@@ -321,11 +327,17 @@ def main_page():
     display_student_status(st.session_state.system, st.session_state.preferences_set)
     st.markdown("---")
     
+    # Find næste ikke-valgte elev hvis ikke allerede sat
+    if 'current_student' not in st.session_state:
+        next_student = find_next_unassigned_student(st.session_state.system, st.session_state.preferences_set)
+        st.session_state.current_student = next_student if next_student else 1
+    
     st.sidebar.header("Elevvælger")
     selected_student_id = st.sidebar.selectbox(
         "Vælg elev",
         options=[s.id for s in st.session_state.system.students],
-        format_func=lambda x: st.session_state.system.students[x-1].name
+        index=[s.id for s in st.session_state.system.students].index(st.session_state.current_student),
+        format_func=lambda x: f"{st.session_state.system.students[x-1].name} {'✅' if x in st.session_state.preferences_set else '⭕'}"
     )
     
     col1, col2 = st.columns(2)
@@ -356,7 +368,15 @@ def main_page():
             None if secondary_topic == "Ingen" else secondary_topic
         )
         st.session_state.preferences_set.add(selected_student_id)
-        st.success(f"Valg gemt for {st.session_state.system.students[selected_student_id-1].name}")
+        
+        # Find næste elev der mangler at vælge
+        next_student = find_next_unassigned_student(st.session_state.system, st.session_state.preferences_set)
+        if next_student:
+            st.session_state.current_student = next_student
+            st.success(f"Valg gemt for {st.session_state.system.students[selected_student_id-1].name}. Skifter til næste elev.")
+        else:
+            st.success(f"Valg gemt for {st.session_state.system.students[selected_student_id-1].name}. Alle elever har nu valgt!")
+        
         st.rerun()
     
     st.subheader("Samlet status")
