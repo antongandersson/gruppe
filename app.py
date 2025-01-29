@@ -190,13 +190,7 @@ def setup_page():
     
     with st.form("setup_form"):
         st.subheader("Grundindstillinger")
-        num_students = st.number_input(
-            "Antal elever", 
-            min_value=2, 
-            max_value=100, 
-            value=st.session_state.num_students,
-            key="num_students_input"
-        )
+
         num_topics = st.number_input(
             "Antal emner", 
             min_value=1, 
@@ -204,6 +198,14 @@ def setup_page():
             value=len(st.session_state.topics),
             key="num_topics_input"
         )
+        num_students = st.number_input(
+            "Antal elever", 
+            min_value=2, 
+            max_value=100, 
+            value=st.session_state.num_students,
+            key="num_students_input"
+        )
+
 
         # Opdater elevnavne dynamisk
         if num_students != len(st.session_state.student_names):
@@ -225,25 +227,34 @@ def setup_page():
                 # Fjern overskydende emner
                 st.session_state.topics = st.session_state.topics[:num_topics]
 
-        st.subheader("Emnekonfiguration")
-        topics = []
-        for i in range(num_topics):
-            topic = st.text_input(
-                f"Emne {i+1}", 
-                value=st.session_state.topics[i], 
-                key=f"topic_{i}"
-            )
-            topics.append(topic)
 
+        # Liste over emner og elevnavne
+        topics = st.session_state.topics
+        student_names = st.session_state.student_names
+
+        # Beregning af midtpunkter, og sørg for at kolonne 1 altid får den ekstra, hvis ulige antal
+        mid_index_topics = (len(topics) + 1) // 2  # Kolonne 1 får ekstra ved ulige antal
+        mid_index_students = (len(student_names) + 1) // 2  # Kolonne 1 får ekstra ved ulige antal
+
+        # Vis emner i to kolonner
+        st.subheader("Emner")
+        col1, col2 = st.columns(2)
+        with col1:
+            for topic in topics[:mid_index_topics]:  # Første halvdel (inkl. ekstra ved ulige antal)
+                st.text_input("Emne", value=topic, key=f"topic_{topic}")
+        with col2:
+            for topic in topics[mid_index_topics:]:  # Anden halvdel
+                st.text_input("Emne", value=topic, key=f"topic_{topic}")
+
+        # Vis elever i to kolonner
         st.subheader("Elevnavne")
-        student_names = []
-        for i in range(num_students):
-            name = st.text_input(
-                f"Elev {i+1}", 
-                value=st.session_state.student_names[i], 
-                key=f"student_{i}"
-            )
-            student_names.append(name)
+        col3, col4 = st.columns(2)
+        with col3:
+            for student in student_names[:mid_index_students]:  # Første halvdel (inkl. ekstra ved ulige antal)
+                st.text_input("Elev", value=student, key=f"student_{student}")
+        with col4:
+            for student in student_names[mid_index_students:]:  # Anden halvdel
+                st.text_input("Elev", value=student, key=f"student_{student}")
 
         if st.form_submit_button("Start konfiguration"):
             # Gem kun hvis der ikke er fejl
