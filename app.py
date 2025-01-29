@@ -225,31 +225,25 @@ def setup_page():
                 # Fjern overskydende emner
                 st.session_state.topics = st.session_state.topics[:num_topics]
 
-        # Emner i to kolonner
-        st.subheader("Emner")
-        col1, col2 = st.columns(2)
-        half_topics = len(st.session_state.topics) // 2 + len(st.session_state.topics) % 2
+        st.subheader("Emnekonfiguration")
+        topics = []
+        for i in range(num_topics):
+            topic = st.text_input(
+                f"Emne {i+1}", 
+                value=st.session_state.topics[i], 
+                key=f"topic_{i}"
+            )
+            topics.append(topic)
 
-        with col1:
-            for i in range(half_topics):
-                st.text_input(f"Emne {i+1}", value=st.session_state.topics[i], key=f"topic_{i}")
-
-        with col2:
-            for i in range(half_topics, len(st.session_state.topics)):
-                st.text_input(f"Emne {i+1}", value=st.session_state.topics[i], key=f"topic_{i}")
-
-        # Elever i to kolonner
         st.subheader("Elevnavne")
-        col3, col4 = st.columns(2)
-        half_students = len(st.session_state.student_names) // 2 + len(st.session_state.student_names) % 2
-
-        with col3:
-            for i in range(half_students):
-                st.text_input(f"Elev {i+1}", value=st.session_state.student_names[i], key=f"student_{i}")
-
-        with col4:
-            for i in range(half_students, len(st.session_state.student_names)):
-                st.text_input(f"Elev {i+1}", value=st.session_state.student_names[i], key=f"student_{i}")
+        student_names = []
+        for i in range(num_students):
+            name = st.text_input(
+                f"Elev {i+1}", 
+                value=st.session_state.student_names[i], 
+                key=f"student_{i}"
+            )
+            student_names.append(name)
 
         if st.form_submit_button("Start konfiguration"):
             # Gem kun hvis der ikke er fejl
