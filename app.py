@@ -188,83 +188,112 @@ def display_student_status(system: GroupFormationSystem, preferences_set: set):
 def setup_page():
     st.title("Gruppedannelsessystem - Konfiguration")
     
-    with st.form("setup_form"):
-        st.subheader("Grundindstillinger")
-
-        num_topics = st.number_input(
-            "Antal emner", 
-            min_value=1, 
-            max_value=20, 
-            value=len(st.session_state.topics),
-            key="num_topics_input"
-        )
+    # Brug columns til bedre layout
+    col1, col2 = st.columns(2)
+    
+    with col1:
         num_students = st.number_input(
             "Antal elever", 
             min_value=2, 
             max_value=100, 
             value=st.session_state.num_students,
-            key="num_students_input"
+            key="num_students_input",
+            on_change=lambda: st.session_state.update({"num_students": st.session_state.num_students_input})
+        )
+        
+    with col2:
+        num_topics = st.number_input(
+            "Antal emner", 
+            min_value=1, 
+            max_value=20, 
+            value=len(st.session_state.topics),
+            key="num_topics_input",
+            on_change=lambda: st.session_state.update({"num_topics": st.session_state.num_topics_input})
         )
 
+    # Opdater elevnavne dynamisk
+    if st.session_state.num_students != len(st.session_state.student_names):
+        if st.session_state.num_students > len(st.session_state.student_names):
+            # Tilføj nye standardnavne
+            for i in range(len(st.session_state.student_names), st.session_state.num_students):
+                st.session_state.student_names.append(f"Elev {i+1}")
+        else:
+            # Fjern overskydende navne
+            st.session_state.student_names = st.session_state.student_names[:st.session_state.num_students]
 
-        # Opdater elevnavne dynamisk
-        if num_students != len(st.session_state.student_names):
-            if num_students > len(st.session_state.student_names):
-                # Tilføj nye standardnavne
-                for i in range(len(st.session_state.student_names), num_students):
-                    st.session_state.student_names.append(f"Elev {i+1}")
-            else:
-                # Fjern overskydende navne
-                st.session_state.student_names = st.session_state.student_names[:num_students]
+    # Opdater emner dynamisk
+    if num_topics != len(st.session_state.topics):
+        if num_topics > len(st.session_state.topics):
+            # Tilføj nye standardemner
+            for i in range(len(st.session_state.topics), num_topics):
+                st.session_state.topics.append(f"Emne {i+1}")
+        else:
+            # Fjern overskydende emner
+            st.session_state.topics = st.session_state.topics[:num_topics]
 
-        # Opdater emner dynamisk
-        if num_topics != len(st.session_state.topics):
-            if num_topics > len(st.session_state.topics):
-                # Tilføj nye standardemner
-                for i in range(len(st.session_state.topics), num_topics):
-                    st.session_state.topics.append(f"Emne {i+1}")
-            else:
-                # Fjern overskydende emner
-                st.session_state.topics = st.session_state.topics[:num_topics]
+    # Vis emner i to kolonner
+    st.subheader("Emner")
+    topics_col1, topics_col2 = st.columns(2)
+    with topics_col1:
+        for i in range((len(st.session_state.topics) + 1) // 2):
+            topic = st.text_input(
+                f"Emne {i+1}", 
+                value=st.session_state.topics[i],
+                key=f"topic_{i}",
+                on_change=lambda i=i: st.session_state.topics.__setitem__(i, st.session_state[f"topic_{i}"])
+            )
+    with topics_col2:
+        for i in range((len(st.session_state.topics) + 1) // 2, len(st.session_state.topics)):
+            topic = st.text_input(
+                f"Emne {i+1}", 
+                value=st.session_state.topics[i],
+                key=f"topic_{i}",
+                on_change=lambda i=i: st.session_state.topics.__setitem__(i, st.session_state[f"topic_{i}"])
+            )
 
+    # Vis elever i to kolonner
+    st.subheader("Elevnavne")
+    students_col1, students_col2 = st.columns(2)
+    with students_col1:
+        for i in range((len(st.session_state.student_names) + 1) // 2):
+            name = st.text_input(
+                f"Elev {i+1}", 
+                value=st.session_state.student_names[i],
+                key=f"student_{i}",
+                on_change=lambda i=i: st.session_state.student_names.__setitem__(i, st.session_state[f"student_{i}"])
+            )
+    with students_col2:
+        for i in range((len(st.session_state.student_names) + 1) // 2, len(st.session_state.student_names)):
+            name = st.text_input(
+                f"Elev {i+1}", 
+                value=st.session_state.student_names[i],
+                key=f"student_{i}",
+                on_change=lambda i=i: st.session_state.student_names.__setitem__(i, st.session_state[f"student_{i}"])
+            )
 
-        # Liste over emner og elevnavne
-        topics = st.session_state.topics
-        student_names = st.session_state.student_names
+    # Enter-taste håndtering
+    if st.button("Start konfiguration ⏎", key="start_btn") or st.session_state.get("enter_pressed"):
+        st.session_state.system = GroupFormationSystem(
+            st.session_state.num_students,
+            st.session_state.topics,
+            st.session_state.student_names
+        )
+        st.session_state.preferences_set = set()
+        go_to_main()
+        st.rerun()
 
-        # Beregning af midtpunkter, og sørg for at kolonne 1 altid får den ekstra, hvis ulige antal
-        mid_index_topics = (len(topics) + 1) // 2  # Kolonne 1 får ekstra ved ulige antal
-        mid_index_students = (len(student_names) + 1) // 2  # Kolonne 1 får ekstra ved ulige antal
-
-        # Vis emner i to kolonner
-        st.subheader("Emner")
-        col1, col2 = st.columns(2)
-        with col1:
-            for topic in topics[:mid_index_topics]:  # Første halvdel (inkl. ekstra ved ulige antal)
-                st.text_input("Emne", value=topic, key=f"topic_{topic}")
-        with col2:
-            for topic in topics[mid_index_topics:]:  # Anden halvdel
-                st.text_input("Emne", value=topic, key=f"topic_{topic}")
-
-        # Vis elever i to kolonner
-        st.subheader("Elevnavne")
-        col3, col4 = st.columns(2)
-        with col3:
-            for student in student_names[:mid_index_students]:  # Første halvdel (inkl. ekstra ved ulige antal)
-                st.text_input("Elev", value=student, key=f"student_{student}")
-        with col4:
-            for student in student_names[mid_index_students:]:  # Anden halvdel
-                st.text_input("Elev", value=student, key=f"student_{student}")
-
-        if st.form_submit_button("Start konfiguration"):
-            # Gem kun hvis der ikke er fejl
-            st.session_state.num_students = num_students
-            st.session_state.topics = topics
-            st.session_state.student_names = student_names
-            st.session_state.system = GroupFormationSystem(num_students, topics, student_names)
-            st.session_state.preferences_set = set()
-            go_to_main()
-            st.rerun()
+    # JavaScript til at fange Enter-tasten
+    st.components.v1.html(
+        """
+        <script>
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                window.parent.document.querySelector('button[key="start_btn"]').click();
+            }
+        });
+        </script>
+        """
+    )
 
 def main_page():
     st.title("Gruppedannelsessystem")
