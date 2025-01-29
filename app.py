@@ -188,10 +188,10 @@ def show_stepper(current_step):
     ]
     
     stepper_html = f"""
-    <div class="stepper-container" style="position: relative; margin: 0.5rem 0;">
+    <div class="stepper-container" style="position: relative; margin: 2rem 0;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             {''.join([
-                f'<div style="flex: 1; text-align: center; position: relative; margin: 0 0.5rem;" data-tooltip="{step["tooltip"]}">'
+                f'<div style="flex: 1; text-align: center; position: relative; margin: 0 1.5rem;" data-tooltip="{step["tooltip"]}">'
                 f'  <div class="phase-icon" style="color: {"#3b82f6" if i == current_step else "#cccccc"};'
                 f'       border: 2px solid {"#3b82f6" if i == current_step else "#eeeeee"};'
                 f'       border-radius: 50%; width: 40px; height: 40px; display: inline-flex;'
@@ -390,15 +390,16 @@ def setup_page():
     col1, col2 = st.columns(2)
     
     with col1:
-        num_students = st.number_input(
-            "Antal elever", 
-            min_value=2, 
-            max_value=100, 
-            value=st.session_state.num_students,
-            key="num_students_input"
-        )
-        st.session_state.num_students = num_students  # Opdater session state
-
+            num_students = st.number_input(
+                "Antal elever", 
+                min_value=2, 
+                max_value=100, 
+                value=st.session_state.num_students,
+                key="num_students_input"
+            )
+            # Opdater session state med den nye værdi
+            st.session_state.num_students = num_students
+            
     with col2:
         num_topics = st.number_input(
             "Antal emner", 
@@ -479,21 +480,106 @@ def setup_page():
     )
 
 def main_page():
-    st.title("Gruppedannelsessystem")
-    show_stepper(1)
+    # Centrer titel
+    st.markdown("""
+    <style>
+        .centered-title {
+            text-align: center;
+            font-size: 2.5em !important;
+            margin-bottom: 1.5rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown('<h1 class="centered-title">Gruppedannelsessystem</h1>', unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 1, 2])
+    show_stepper(1)
+
+    # Tilføj custom CSS
+    st.markdown("""
+    <style>
+        /* Primærknapper */
+        div[data-testid="stButton"] > button:not([kind="secondary"]) {
+            width: 100% !important;
+            padding: 1rem !important;
+            border-radius: 10px !important;
+            transition: all 0.3s ease !important;
+        }
+
+        /* Tilbage-knap */
+        div[data-testid="stButton"] > button:first-child {
+            background: #3b82f6 !important;
+            color: white !important;
+        }
+
+        /* Nulstil-knap */
+        div[data-testid="stButton"] > button:nth-child(2) {
+            background: #ef4444 !important;
+            color: white !important;
+        }
+
+        /* Hover effekter til primærknapper */
+        div[data-testid="stButton"] > button:not([kind="secondary"]):hover {
+            transform: translateY(-2px) !important;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+        }
+
+        /* Mindre sekundærknapper */
+        div[data-testid="stButton"] > button[kind="secondary"] {
+            padding: 0.5rem 1rem !important;
+            font-size: 0.9em !important;
+            border-radius: 8px !important;
+            width: auto !important;
+            min-height: unset !important;
+            transition: all 0.2s ease !important;
+            background: #f0f2f6 !important;
+            color: #333 !important;
+            border: 1px solid #ddd !important;
+        }
+
+        button[kind="secondary"]:hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+            background: #e2e6eb !important;
+            border-color: #ccc !important;
+        }
+
+        /* Dark mode tilpasninger */
+        [data-theme="dark"] button[kind="secondary"] {
+            background: #2d2d2d !important;
+            color: #fff !important;
+            border-color: #444 !important;
+        }
+
+        [data-theme="dark"] button[kind="secondary"]:hover {
+            background: #3d3d3d !important;
+            border-color: #555 !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Knapper i grid layout
+    col1, col2 = st.columns(2)
+    
     with col1:
-        if st.button("⬅️ Tilbage til konfiguration", use_container_width=True):
+        if st.button(
+            "⚙️ Tilbage til konfiguration", 
+            help="Returner til konfigurationssiden",
+            use_container_width=True
+        ):
             go_to_setup()
             st.rerun()
+
     with col2:
-        if st.button("🔄 Nulstil præferencer", use_container_width=True):
+        if st.button(
+            "♻️ Nulstil præferencer", 
+            help="Slet alle indtastede præferencer",
+            use_container_width=True
+        ):
             st.session_state.system.reset_preferences()
             st.session_state.preferences_set = set()
             st.success("Præferencer nulstillet!")
             st.rerun()
-    
+
     display_student_status(st.session_state.system, st.session_state.preferences_set)
     st.markdown("---")
     
@@ -518,20 +604,28 @@ def main_page():
         selected_partners = st.multiselect(
             "Prioriterede partnere (træk for at ændre rækkefølge)",
             options=partner_options,
-            format_func=lambda x: st.session_state.system.students[x-1].name
+            format_func=lambda x: st.session_state.system.students[x-1].name,
+            key="partner_select"
         )
+    
     with col2:
         st.subheader("Emnevalg")
         primary_topic = st.selectbox(
             "Primært emne",
-            options=st.session_state.system.topics
+            options=st.session_state.system.topics,
+            key="primary_topic"
         )
         secondary_topic = st.selectbox(
             "Sekundært emne",
-            options=["Ingen"] + st.session_state.system.topics
+            options=["Ingen"] + st.session_state.system.topics,
+            key="secondary_topic"
         )
     
-    if st.button("Gem valg"):
+    # Gem knap med mindre styling
+    if st.button("Gem valg", 
+                 key="save_prefs",
+                 type="secondary",
+                 help="Gemmer den valgte elevs præferencer"):
         st.session_state.system.set_preferences(
             selected_student_id,
             selected_partners,
@@ -547,13 +641,17 @@ def main_page():
     st.progress(progress)
     st.write(f"{len(st.session_state.preferences_set)}/{len(st.session_state.system.students)} elever har indsendt valg")
     
-    if st.button("🔄 Dan grupper"):
-        with st.spinner("Danner grupper..."):
+    # Gruppedannelsesknap med mindre styling
+    if st.button("🔄 Dan grupper", 
+                 key="form_groups",
+                 type="secondary",
+                 help="Start gruppedannelsesprocessen"):
+        with st.spinner("Analyserer præferencer..."):
             score_matrix = st.session_state.system.create_score_matrix()
             groups = st.session_state.system.find_best_groups(score_matrix)
             st.session_state.groups = groups
             
-            st.subheader("Resultater")
+            st.subheader("Grupperesultat")
             for i, group in enumerate(groups, 1):
                 with st.expander(f"Gruppe {i}: {group.topic} (Score: {group.score:.1f})", expanded=i==1):
                     st.write(f"**Antal medlemmer:** {len(group.members)}")
@@ -568,25 +666,12 @@ def main_page():
             with cols[1]:
                 with st.expander("📊 Statusoversigt", expanded=True):
                     st.metric("Grupper dannet", len(groups))
-                    st.metric("Gns. score", f"{sum(g.score for g in groups)/len(groups):.1f}" if groups else "0.0")
+                    st.metric("Gennemsnitlig score", f"{sum(g.score for g in groups)/len(groups):.1f}" if groups else "0.0")
                     st.progress(progress)
             
             if len([m for g in groups for m in g.members]) < len(st.session_state.system.students):
                 st.warning(f"{len(st.session_state.system.students) - len([m for g in groups for m in g.members])} elever kunne ikke placeres")
     
-    add_keyboard_shortcuts()
-    
-    with st.expander("❓ Hjælpefunktioner", expanded=False):
-        st.markdown("""
-        **Keyboard shortcuts:**
-        - Alt + S: Gem valg
-        - Alt + N: Næste side
-        
-        **Tips:**
-        - Klik på en elev for at se detaljer
-        - Hover over faser for forklaringer
-        """)
-
     # Tema-håndtering
     theme_js = f"""
     <script>
@@ -605,17 +690,6 @@ def main_page():
         }} else {{
             setTheme(themeSetting === 'Mørkt');
         }}
-
-        const observer = new MutationObserver(mutations => {{
-            const bodyColor = getComputedStyle(document.body).backgroundColor;
-            const isDark = bodyColor === 'rgb(26, 26, 26)';
-            setTheme(isDark);
-        }});
-
-        observer.observe(document.body, {{
-            attributes: true,
-            attributeFilter: ['style']
-        }});
     </script>
     """
     html(theme_js)
@@ -686,7 +760,7 @@ def main():
         }}
 
         .stepper-container div[data-tooltip] {{
-            margin: 0 0.5rem;
+            margin: 0 1.5rem;
         }}
 
         @media (max-width: 768px) {{
