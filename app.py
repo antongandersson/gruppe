@@ -38,18 +38,34 @@ class GroupFormationSystem:
     def calculate_pair_score(self, student1: Student, student2: Student) -> float:
         score = 0.0
         
-        if student2.id in student1.preferred_partners[:1] and student1.id in student2.preferred_partners[:1]:
-            score += 10.0
-        elif student2.id in student1.preferred_partners and student1.id in student2.preferred_partners:
-            score += 5.0
-        elif student2.id in student1.preferred_partners or student1.id in student2.preferred_partners:
-            score += 2.0
+        # Vægtet scoring for partnerprioriteringer
+        priority_weights = {0: 4.0, 1: 2.5, 2: 1.5}  # Eksempel: Første valg=4, andet=2.5, tredje=1.5
         
+        # Tjek gensidighed og prioritetsniveau
+        s1_priority = None
+        s2_priority = None
+        
+        if student2.id in student1.preferred_partners:
+            s1_priority = student1.preferred_partners.index(student2.id)
+            if s1_priority < 3:  # Kun de første 3 prioriteringer tæller
+                score += priority_weights.get(s1_priority, 0)
+        
+        if student1.id in student2.preferred_partners:
+            s2_priority = student2.preferred_partners.index(student1.id)
+            if s2_priority < 3:
+                score += priority_weights.get(s2_priority, 0)
+        
+        # Gensidighedsbonus baseret på prioritetsforskelle
+        if s1_priority is not None and s2_priority is not None:
+            priority_diff = abs(s1_priority - s2_priority)
+            score += max(3.0 - priority_diff, 0)  # Bonus: 3 for perfekt match, 0 ved stor forskel
+        
+        # Eksisterende emnelogik
         if student1.preferred_topic == student2.preferred_topic:
-            score += 5.0
+            score += 3.0
         elif (student1.preferred_topic == student2.secondary_topic or 
-              student1.secondary_topic == student2.preferred_topic):
-            score += 2.0
+            student1.secondary_topic == student2.preferred_topic):
+            score += 1.5
         
         return score
     
