@@ -8,6 +8,8 @@ from streamlit.components.v1 import html
 from fuzzywuzzy import process
 import Levenshtein
 import networkx as nx
+from collections import defaultdict
+
 
 class Student:
     def __init__(self, id: int, name: str):
@@ -80,7 +82,7 @@ class GroupFormationSystem:
                 matrix[j][i] = score
         
         return matrix
-    
+        
     def find_best_groups(self, score_matrix: np.ndarray) -> List[Group]:
         unassigned = set(range(len(self.students)))
         groups = []
@@ -90,6 +92,7 @@ class GroupFormationSystem:
             best_score = -1
             best_topic = None
 
+            # Eksisterende logik til at finde den bedste gruppe
             for size in range(2, min(self.max_group_size + 1, len(unassigned) + 1)):
                 for members in self._get_possible_groups(list(unassigned), size):
                     if not members:
@@ -118,20 +121,49 @@ class GroupFormationSystem:
                 groups.append(Group(group_members, best_topic, best_score))
                 unassigned -= set(best_group)
             else:
+                # Ny logik for restgrupper
                 remaining_students = [self.students[i] for i in unassigned]
                 
-                while remaining_students:
-                    current_group = remaining_students[:self.max_group_size]
-                    remaining_students = remaining_students[self.max_group_size:]
-                    
-                    topic_preferences = {}
-                    for student in current_group:
-                        if student.preferred_topic:
-                            topic_preferences[student.preferred_topic] = topic_preferences.get(student.preferred_topic, 0) + 1
-                    
-                    chosen_topic = max(topic_preferences.items(), key=lambda x: x[1])[0] if topic_preferences else self.topics[0]
-                    groups.append(Group(current_group, chosen_topic, 0.0))
-                
+                # Gruppér efter emner
+                topic_buckets = defaultdict(list)
+                for student in remaining_students:
+                    if student.preferred_topic:
+                        topic_buckets[student.preferred_topic].append(student)
+                    elif student.secondary_topic:
+                        topic_buckets[student.secondary_topic].append(student)
+                    else:
+                        topic_buckets["Ingen"].append(student)
+
+                # Dan emnebaserede grupper
+                for topic, students in topic_buckets.items():
+                    while students:
+                        best_subgroup = []
+                        best_subscore = -1
+                        
+                        # Find bedste kombination indenfor emnet
+                        for size in range(min(self.max_group_size, len(students)), 1, -1):
+                            for i in range(len(students) - size + 1):
+                                subgroup = students[i:i+size]
+                                indices = [s.id-1 for s in subgroup]
+                                current_score = self._calculate_group_score(indices, score_matrix)
+                                
+                                if current_score > best_subscore:
+                                    best_subscore = current_score
+                                    best_subgroup = subgroup
+
+                        if best_subgroup:
+                            groups.append(Group(best_subgroup, topic, best_subscore))
+                            # Fjern fra både students og unassigned
+                            for s in best_subgroup:
+                                students.remove(s)
+                                unassigned.remove(s.id-1)
+                        else:
+                            # Fallback: Tilfældig gruppe med emnet
+                            group = students[:self.max_group_size]
+                            groups.append(Group(group, topic, 0.0))
+                            for s in group:
+                                unassigned.remove(s.id-1)
+                            students = students[self.max_group_size:]
                 break
 
         return groups
